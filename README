@@ -1,0 +1,153 @@
+NAME AND SURNAME: CALITESCU MIHAI-GABRIEL
+GROUP AND SERIES: 321CB
+
+~~~~ SERVER ~~~~
+
+In the server cpp file i have declared multiple functions and global variables
+that will help me organize the clients and their functionalities.
+
+The file contains multiple maps (unordered_map) that will help me keep tcp user
+information, udp user properties and message characteristics. What each of them
+does is described as a comment above their declaration in the "server.cpp" file
+
+The "send_string" and "receive_string" functions are described below in the
+last section of the README and they are present in both "server.cpp" and
+"subscriber.cpp"
+
+# parseTopic
+
+This function receives a message (in it's raw form, as it is received from the
+udp client) and returns a pair of char*, the left one being the topic of the
+message and the right being the content + data type concatenation. The function
+allocates these 2 char pointers on the heap and copies the desired part of the
+message in them The Macros used inside this function are defined in the
+"helpers.h" file and they are taken from the statement.
+
+# parseContent
+
+This function receives the concatenation of message content and data type and
+based on that data type it returns the correct content as a string (it build the
+int / float) and with the help of an "sprintf()" we will print that content into
+a char* allocated on the heap.
+
+# parseDataType
+
+This function receives the concatenation of the message content and data type and
+based on that data type it will return a string stating that data type it is.
+
+# init()
+
+The initialization function is present in both the subscriber and server and all
+it does is pre-allocating the stored_buffer global variable (which i will
+explain in the final section, along with "send_string" and "receive_string") and
+terminating it with a string terminator. Also this function is turing off the
+buffering for stdout. This function will also be called in the subscriber, for
+the exact same reason.
+
+# initSockets
+
+This function will open the sockets, check the return value of the system calls,
+populate the "sockaddr_in" structures, bind the sockets and structures, and for
+the tcp socket, make it listen for connections. Next up, we will initialize the
+"fd_set" fields, by zero-ing them and calculating the maximum of the descriptors
+added so far (so far we only have the tcp, udp socket and the stdin file
+descriptor, which is 0).
+
+The main function will make a call to the init and initSockets function and
+after that it will start an infinite loop, where it will make a call to the
+select function which will keep in the copy of read_fds (which in my code is
+tmp_fds) only the descriptors for which it detected activity. After that i will
+iterate through all the possible descriptors (from 1 to fdmax) and for each of
+them i will check with "FD_ISSET" if the descriptor is in the tmp_fds. If it is
+in the tmp_fds i will further check what descriptor is it, i will check if the
+descriptor is equal to either the stdin descriptor (which means the server
+receives input from the keyboard), the tcp socket (which means the server is
+about to receive a connection on the tcp socket from a client), the udp socket
+(which means the server is receiving a message on the udp socket from the udp
+clients) or from a tcp client (which means it has received a message from one of
+the clients it was connected to before on the tcp socket).
+
+# read_from_stdin
+
+The read from stdin function will read a line from standard input, will check if
+the given word is "exit", if it is it will send an exit command to every client
+connected to the tcp socket, so that every other client still connected to the
+server will also close. After that it will close both the tcp and udp sockets.
+Otherwise, if the word given from stdin is different from "exit" it will just
+send an error message stating that the command is invalid
+
+# read_from_tcp_socket
+
+The read from tcp socket function will accept a new connection on the tcp port
+and retrieve the ip, port and id of the client that wants to connect. If the
+client is already connected, already has a positive entry in the sockets from id
+map, i will print that the client is already connected and send a message to
+that client to close itself because the connection cannot be established.
+Otherwise, i will add the socket in the read_fds, recalculate the maximum fd and
+update the maps with the desired values. Next up i will iterate through every
+topic ever created check if the client is subscribed to that topic with SF = 1,
+and if that is the case we will send all the messaged for that topic that the
+client has not yet received.
+
+# read_from_udp_socket
+
+The read from udp socket function will read a message from the udp socket, will
+parse it's content and with that information update the information in all the
+maps previously built. Afterwards we will initialize this message as not send
+for every client and next up only sending it to the clients subscribed to the
+topic of the message and mark the message as sent for them.
+
+# read_from_tcp_clients
+
+The read from tcp clients function will receive a message from the tcp client,
+if the message is NULL, it means that the client has closed the connection, for
+which we will remove the entries from all of the maps that have to deal with
+this client (excepting the sockets from ids map because it is possible that the
+client will connect again in the future with the same id and he needs to receive
+all the messaged that he has missed (this of course if SF = 1)) Next up i will
+check if the first word of the message if subscribe, for which i will update the
+maps and mark this client subscribe to that topic, and after that, if he
+subscribes with SF = 1, i will send all the messaged that he has missed for that
+topic. If the first word is unsubscribe i will erase the entry from the map that
+marks the client subscribed to that topic.
+
+~~~~ SUBSCRIBER ~~~~
+
+The main function in the subscriber (which is the only thing that is different
+from the server) will again open the sockets and connect to the tcp socket of
+the server, disabling the Neagle algorithm, and sending one by one 3 messages
+with the ip, id and port of this client to the server so the server can know
+these parameters (i know i can pull them fro, the structure sockaddr_in in the
+server but i thought this was a little cleaner and easier to extend and to
+understand if we were to send like an unique id or an age of the client, but
+that is not the case here). After, i initialize the read_fds and the tmp_fds and
+in a forever loop i will check if i either read from stdin or read from the tcp
+socket (from the server). Reading from stdin will check if the line is "exit",
+for which i will close the client and send a message to the server that i have
+disconnected. After that i check if the message is either a subscribe or an
+unsubscribe command, for which i will print the appropriate message to stdout.
+If i read from the tcp socket i check if the message is exit (only sent from the
+server if the server itself will close), otherwise just print the message you
+received on the socket.
+
+~~~~ SEND_STRING ~~~~
+
+Through this function im trying to make the tcp protocol API act as a
+message-oriented protocol, rather than a stream oriented one. For that i will
+continuously send bits of messages with send, i will keep in mind how many bytes
+the function has send, and only send more if the amount left to be sent is
+bigger than 0. Each time i will send the buffer from the part not yet send (i
+will not send part of the message that have already been sent).
+
+~~~~ RECEIVE_STRING ~~~~
+
+With this function i'm trying to achieve the same thing as in the send function,
+so i will continuously receive until i have received enough i wanted (BUFLEN in
+our case) Every time i receive a part of a message (or multiple messaged
+combined) im always adding to a global variable called "stored_buffer" in which
+we will always concatenate the received messages and at the end send only BUFLEN
+bytes from this saved "stored_buffer" and update it's value by removing the
+first BUFLEN bytes.
+
+Proceeding like this we can use these 2 functions instead of "recv" and "send"
+to use tcp as a message-oriented protocol. 
